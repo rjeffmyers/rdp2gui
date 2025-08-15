@@ -90,7 +90,7 @@ class RDPManager(Gtk.Window):
         conn_box.set_border_width(10)
         conn_frame.add(conn_box)
         
-        # Hostname field
+        # Hostname field with dropdown
         hostname_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         conn_box.pack_start(hostname_box, False, False, 0)
         
@@ -99,10 +99,12 @@ class RDPManager(Gtk.Window):
         hostname_label.set_xalign(0)
         hostname_box.pack_start(hostname_label, False, False, 0)
         
-        self.hostname_entry = Gtk.Entry()
+        # Use ComboBoxText with entry for hostname
+        self.hostname_combo = Gtk.ComboBoxText.new_with_entry()
+        self.hostname_entry = self.hostname_combo.get_child()  # Get the entry widget
         self.hostname_entry.set_placeholder_text("hostname or IP address")
         self.hostname_entry.connect("changed", self.on_hostname_changed)
-        hostname_box.pack_start(self.hostname_entry, True, True, 0)
+        hostname_box.pack_start(self.hostname_combo, True, True, 0)
         
         # Username field
         username_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
@@ -163,16 +165,57 @@ class RDPManager(Gtk.Window):
         self.recent_listbox.connect("row-selected", self.on_recent_selected)
         scrolled_window.add(self.recent_listbox)
         
-        # Add menu bar
-        menubar = Gtk.MenuBar()
-        vbox.pack_start(menubar, False, False, 0)
-        vbox.reorder_child(menubar, 0)  # Move to top
+        # Add a toolbar for better visibility
+        toolbar = Gtk.Toolbar()
+        toolbar.set_style(Gtk.ToolbarStyle.BOTH_HORIZ)  # Show both icon and text
+        vbox.pack_start(toolbar, False, False, 0)
+        vbox.reorder_child(toolbar, 0)  # Move to top
         
-        # Tools menu
+        # Add Tools button with icon
+        tools_button = Gtk.ToolButton()
+        tools_button.set_label("Tools")  # Remove the gear emoji since we have an icon
+        tools_button.set_icon_name("applications-system")  # System tools icon
+        tools_button.set_tooltip_text("Settings, installation helpers, and utilities")
+        tools_button.set_is_important(True)  # Makes the label always visible
+        toolbar.insert(tools_button, 0)
+        
+        # Add separator
+        separator = Gtk.SeparatorToolItem()
+        separator.set_expand(True)
+        separator.set_draw(False)
+        toolbar.insert(separator, 1)
+        
+        # Add Help button
+        help_button = Gtk.ToolButton()
+        help_button.set_label("Help")
+        help_button.set_icon_name("help-about")
+        help_button.set_tooltip_text("About this application")
+        toolbar.insert(help_button, 2)
+        
+        def show_about(widget):
+            dialog = Gtk.AboutDialog()
+            dialog.set_transient_for(self)
+            dialog.set_program_name("FreeRDP GUI")
+            dialog.set_version("1.0")
+            dialog.set_comments("A simple GTK+ interface for xfreerdp on Linux\n\nSimilar to Microsoft's Remote Desktop client")
+            dialog.set_website("https://github.com/rjeffmyers/rdp2gui")
+            dialog.set_website_label("GitHub Project Page")
+            dialog.set_authors(["RDP2GUI Contributors"])
+            dialog.set_license_type(Gtk.License.MIT_X11)
+            dialog.run()
+            dialog.destroy()
+        
+        help_button.connect("clicked", show_about)
+        
+        # Create tools menu
         tools_menu = Gtk.Menu()
-        tools_item = Gtk.MenuItem(label="Tools")
-        tools_item.set_submenu(tools_menu)
-        menubar.append(tools_item)
+        
+        # Connect tools button to show menu
+        def show_tools_menu(widget):
+            tools_menu.show_all()
+            tools_menu.popup_at_widget(widget, Gdk.Gravity.SOUTH_WEST, Gdk.Gravity.NORTH_WEST, None)
+        
+        tools_button.connect("clicked", show_tools_menu)
         
         # Install FreeRDP menu item
         install_item = Gtk.MenuItem(label="Install FreeRDP...")
@@ -203,15 +246,28 @@ class RDPManager(Gtk.Window):
         self.keyring_toggle_item.connect("toggled", self.toggle_keyring_support)
         tools_menu.append(self.keyring_toggle_item)
         
+        # Separator
+        tools_menu.append(Gtk.SeparatorMenuItem())
+        
+        # Debug mode toggle
+        self.debug_toggle_item = Gtk.CheckMenuItem(label="Debug Mode")
+        self.debug_toggle_item.set_active(False)
+        self.debug_toggle_item.connect("toggled", self.toggle_debug_mode)
+        tools_menu.append(self.debug_toggle_item)
+        
         # Initialize
         self.current_process = None
         self.config_file = os.path.expanduser("~/.config/rdp2gui/config.json")
         self.credentials_file = os.path.expanduser("~/.config/rdp2gui/credentials.json")
         self.use_keyring = KEYRING_AVAILABLE
+        self.debug_mode = False  # Set to True to see command output
         
         # Load configuration
         self.config = self.load_config()
         self.stored_credentials = self.load_credentials()
+        
+        # Populate hostname dropdown
+        self.populate_hostname_dropdown()
         
         # Load recent connections
         self.load_recent_connections()
@@ -231,6 +287,29 @@ class RDPManager(Gtk.Window):
         elif shutil.which("xfreerdp"):
             return "xfreerdp"
         return None
+    
+    def populate_hostname_dropdown(self):
+        """Populate the hostname dropdown with previously used computers"""
+        # Clear existing items
+        self.hostname_combo.remove_all()
+        
+        # Start with recent connections (most recent first)
+        hostnames = []
+        for hostname in self.config.get("recent", []):
+            if hostname not in hostnames:
+                hostnames.append(hostname)
+        
+        # Then add any other known hostnames
+        if "connections" in self.config:
+            for hostname in sorted(self.config["connections"].keys()):
+                if hostname not in hostnames:
+                    hostnames.append(hostname)
+        
+        # Add hostnames to dropdown
+        for hostname in hostnames:
+            self.hostname_combo.append_text(hostname)
+        
+        # Don't select any item by default - let user type or choose
     
     def on_hostname_changed(self, widget):
         """Handle hostname change to load saved settings"""
@@ -358,16 +437,23 @@ class RDPManager(Gtk.Window):
         cmd = [freerdp_cmd]
         
         # Add hostname
-        cmd.extend([f"/v:{hostname}"])
+        cmd.append(f"/v:{hostname}")
         
-        # Add username
+        # Add username and domain
         if domain:
-            cmd.extend([f"/u:{username}", f"/d:{domain}"])
+            cmd.append(f"/u:{username}")
+            cmd.append(f"/d:{domain}")
         else:
-            cmd.extend([f"/u:{username}"])
+            cmd.append(f"/u:{username}")
         
-        # Add password
-        cmd.extend([f"/p:{password}"])
+        # Password handling - check if we can use more secure methods
+        # Try to use environment variable or stdin to avoid password in process list
+        use_env_password = False
+        
+        # Check xfreerdp version and capabilities
+        # For now, we'll use direct password but this can be improved
+        # TODO: Implement /from-stdin or environment variable method
+        cmd.append(f"/p:{password}")
         
         # Get advanced options for this host
         advanced_opts = self.get_advanced_options(hostname)
@@ -390,22 +476,23 @@ class RDPManager(Gtk.Window):
                 monitors_str = ",".join(str(m) for m in selected_monitors)
                 cmd.extend([f"/monitors:{monitors_str}"])
         
-        # Performance flags
-        if advanced_opts.get("disable_fonts", True):
-            cmd.append("-fonts")
-        if advanced_opts.get("disable_wallpaper", True):
-            cmd.append("-wallpaper")
-        if advanced_opts.get("disable_themes", True):
-            cmd.append("-themes")
-        if advanced_opts.get("disable_aero", True):
-            cmd.append("-aero")
-        if advanced_opts.get("disable_drag", True):
-            cmd.append("-window-drag")
+        # Performance flags - commented out for now to debug connection issues
+        # We'll re-enable these once basic connection works
+        #if advanced_opts.get("disable_fonts", True):
+        #    cmd.append("+fonts")
+        #if advanced_opts.get("disable_wallpaper", True):
+        #    cmd.append("-wallpaper")
+        #if advanced_opts.get("disable_themes", True):
+        #    cmd.append("-themes")
+        #if advanced_opts.get("disable_aero", True):
+        #    cmd.append("+aero")
+        #if advanced_opts.get("disable_drag", False):
+        #    cmd.append("-window-drag")
         
-        # Audio
+        # Audio - simplified for compatibility
         audio_mode = advanced_opts.get("audio_mode", "local")
         if audio_mode == "local":
-            cmd.append("/sound:sys:alsa")
+            cmd.append("/sound")  # Simplified - let xfreerdp choose
         elif audio_mode == "remote":
             cmd.append("/audio-mode:1")
         elif audio_mode == "disabled":
@@ -421,7 +508,7 @@ class RDPManager(Gtk.Window):
             cmd.extend([f"/drive:home,{home_dir}"])
         
         # Certificate acceptance
-        cmd.append("/cert-ignore")
+        cmd.append("/cert:ignore")
         
         # Network level authentication
         if advanced_opts.get("nla", True):
@@ -433,15 +520,52 @@ class RDPManager(Gtk.Window):
         if advanced_opts.get("compression", True):
             cmd.append("+compression")
         
+        # Debug: Print command for troubleshooting (hide password for security)
+        if self.debug_mode:
+            debug_cmd = []
+            for arg in cmd:
+                if arg.startswith("/p:"):
+                    debug_cmd.append("/p:********")  # Hide password
+                else:
+                    debug_cmd.append(arg)
+            print(f"Running command: {' '.join(debug_cmd)}")
+        
         # Start the RDP session
         try:
             # Run xfreerdp in a new process
+            # Use subprocess properly to avoid shell interpretation
             self.current_process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True
+                text=True,
+                shell=False  # Important: don't use shell to avoid interpretation
             )
+            
+            # Check if process started successfully
+            # Give it a moment to see if it fails immediately
+            import time
+            time.sleep(1)  # Increased wait time
+            poll_result = self.current_process.poll()
+            
+            if poll_result is not None:
+                # Process ended already - there was an error
+                stdout, stderr = self.current_process.communicate()
+                error_msg = stderr if stderr else stdout
+                if not error_msg:
+                    error_msg = f"Process exited with code {poll_result}"
+                
+                # Parse common error messages
+                if "unknown option" in error_msg.lower():
+                    error_msg = "Invalid xfreerdp options. Your version may not support all features.\n\n" + error_msg
+                elif "authentication" in error_msg.lower() or "logon failure" in error_msg.lower():
+                    error_msg = "Authentication failed. Please check your username and password.\n\n" + error_msg
+                elif "could not connect" in error_msg.lower() or "unable to connect" in error_msg.lower():
+                    error_msg = f"Could not connect to {hostname}. Please check the hostname and network connection.\n\n" + error_msg
+                
+                self.show_error(f"RDP Connection Failed:\n\n{error_msg[:500]}")
+                self.current_process = None
+                return
             
             # Show connection window
             self.show_connection_window(hostname, username)
@@ -879,6 +1003,11 @@ class RDPManager(Gtk.Window):
         self.config["recent"] = self.config["recent"][:10]
         
         self.save_config()
+        
+        # Refresh the hostname dropdown
+        self.populate_hostname_dropdown()
+        
+        # Refresh recent connections list
         self.load_recent_connections()
     
     def load_recent_connections(self):
@@ -1049,6 +1178,14 @@ class RDPManager(Gtk.Window):
             self.show_info("Keyring module not available. Please install it first:\nTools → Install Keyring Support")
         else:
             self.show_info("System keyring enabled for secure password storage.")
+    
+    def toggle_debug_mode(self, widget):
+        """Toggle debug mode on/off"""
+        self.debug_mode = widget.get_active()
+        if self.debug_mode:
+            self.show_info("Debug mode enabled. Commands will be shown in terminal (passwords hidden).")
+        else:
+            self.show_info("Debug mode disabled. Commands will not be shown.")
     
     def show_install_prompt(self):
         """Show prompt to install FreeRDP"""
