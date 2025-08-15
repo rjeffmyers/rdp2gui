@@ -1,0 +1,22 @@
+Package: rdp2gui
+Version: 1.0.0
+Section: net
+Priority: optional
+Architecture: all
+Depends: python3 (>= 3.6), python3-gi, gir1.2-gtk-3.0, freerdp2-x11 | freerdp-x11
+Recommends: python3-keyring, python3-secretstorage, gnome-keyring
+Maintainer: RDP2GUI Contributors <noreply@github.com>
+Homepage: https://github.com/rjeffmyers/rdp2gui
+Description: Simple GTK+ GUI for FreeRDP on Linux
+ RDP2GUI is a user-friendly GUI wrapper for the xfreerdp command-line tool,
+ making it easy to connect to Windows machines via RDP (Remote Desktop Protocol)
+ from Linux systems. The interface is inspired by Microsoft's Remote Desktop
+ Connection client, providing a familiar experience for users transitioning
+ from Windows.
+ .
+ Features include:
+  - Simple connection management with saved connections
+  - Secure password storage using system keyring
+  - Advanced connection options (display, performance, audio)
+  - Multi-monitor support
+  - Built-in tools for installation and debuggingInstalled-Size: 100

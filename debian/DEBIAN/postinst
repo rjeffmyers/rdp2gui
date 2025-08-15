@@ -1,0 +1,13 @@
+#!/bin/bash
+set -e
+
+# Make the main script executable
+chmod +x /usr/bin/rdp2gui
+
+# Create config directory for new users
+if [ "$1" = "configure" ]; then
+    echo "RDP2GUI has been installed successfully."
+    echo "You can run it with: rdp2gui"
+fi
+
+exit 0

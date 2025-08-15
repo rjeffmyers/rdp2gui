@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=RDP2GUI
+Comment=FreeRDP GUI for Linux - Remote Desktop Connection Client
+Exec=rdp2gui
+Icon=preferences-desktop-remote-desktop
+Terminal=false
+Categories=Network;RemoteAccess;
+Keywords=rdp;remote;desktop;connection;windows;freerdp;
