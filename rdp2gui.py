@@ -840,123 +840,118 @@ class RDPManager(Gtk.Window):
         dialog.destroy()
     
     def identify_monitors(self, widget=None):
-        """Show monitor identification windows"""
+        """Show a numbered overlay on each monitor.
+
+        Uses GDK's monitor API together with fullscreen_on_monitor() instead of
+        xrandr + window.move(). Both of the old techniques are X11-only: under
+        Wayland (e.g. KDE Plasma on Wayland) xrandr does not report the real
+        layout and clients are not allowed to position their own windows, so the
+        overlays silently failed. The GDK approach works on both X11 and Wayland.
+        """
         try:
-            # Get monitor information using xrandr
-            result = subprocess.run(
-                ["xrandr", "--query"],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            
-            if result.returncode != 0:
-                self.show_error("Could not get monitor information")
+            display = Gdk.Display.get_default()
+            if display is None:
+                self.show_error("Could not get display information")
                 return
-            
-            # Parse xrandr output
-            monitors = []
-            monitor_index = 0
-            
-            for line in result.stdout.split('\n'):
-                if ' connected' in line and not 'disconnected' in line:
-                    # Extract monitor info
-                    parts = line.split()
-                    name = parts[0]
-                    
-                    # Find resolution and position
-                    for part in parts:
-                        match = re.match(r'(\d+)x(\d+)\+(\d+)\+(\d+)', part)
-                        if match:
-                            width = int(match.group(1))
-                            height = int(match.group(2))
-                            x = int(match.group(3))
-                            y = int(match.group(4))
-                            monitors.append({
-                                'index': monitor_index,
-                                'name': name,
-                                'width': width,
-                                'height': height,
-                                'x': x,
-                                'y': y
-                            })
-                            monitor_index += 1
-                            break
-            
-            if not monitors:
+
+            n_monitors = display.get_n_monitors()
+            if n_monitors == 0:
                 self.show_info("No monitors detected")
                 return
-            
-            # Create identification windows
+
+            # Create identification windows, one fullscreen overlay per monitor.
             id_windows = []
-            
-            for mon in monitors:
+
+            for index in range(n_monitors):
+                monitor = display.get_monitor(index)
+                geo = monitor.get_geometry()  # logical pixels, X11 and Wayland
+                name = monitor.get_model() or f"Output {index}"
+
                 window = Gtk.Window()
-                window.set_title(f"Monitor {mon['index']}")
+                window.set_title(f"Monitor {index}")
                 window.set_decorated(False)
                 window.set_keep_above(True)
-                window.set_default_size(400, 300)
-                
-                # Position window on the monitor
-                window.move(mon['x'] + (mon['width'] - 400) // 2,
-                           mon['y'] + (mon['height'] - 300) // 2)
-                
-                # Create content
-                vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-                vbox.set_border_width(20)
-                window.add(vbox)
-                
-                # Add background color
+
+                # Make the fullscreen window transparent so the desktop shows
+                # through and only the centered badge is visible (like KDE's own
+                # identify overlay), instead of blanking the whole monitor.
+                # fullscreen_on_monitor() still handles correct per-monitor
+                # placement on Wayland; the window itself just isn't painted.
+                screen = window.get_screen()
+                rgba_visual = screen.get_rgba_visual()
+                transparent = rgba_visual is not None and screen.is_composited()
+                if transparent:
+                    window.set_visual(rgba_visual)
+                    window.set_app_paintable(True)
+
+                # Centered badge holding the monitor number and info
+                badge = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+                badge.set_border_width(30)
+                badge.set_halign(Gtk.Align.CENTER)
+                badge.set_valign(Gtk.Align.CENTER)
+                badge.get_style_context().add_class("badge")
+                window.add(badge)
+
+                # Styling: transparent window, opaque rounded badge
                 css_provider = Gtk.CssProvider()
+                window_bg = b"rgba(0,0,0,0)" if transparent else b"#2196F3"
                 css_provider.load_from_data(b"""
                     window {
-                        background-color: #2196F3;
+                        background-color: %s;
                     }
-                    label {
+                    box.badge {
+                        background-color: rgba(33, 150, 243, 0.92);
+                        border-radius: 28px;
+                        padding: 24px 56px;
+                    }
+                    box.badge label {
                         color: white;
-                        font-size: 48px;
+                        font-size: 120px;
                         font-weight: bold;
                     }
-                    label.info {
-                        font-size: 18px;
+                    box.badge label.info {
+                        font-size: 24px;
                         font-weight: normal;
                     }
-                """)
-                
+                """ % window_bg)
+
                 style_context = window.get_style_context()
                 style_context.add_provider(css_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
-                
+                badge.get_style_context().add_provider(css_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
                 # Monitor number
-                number_label = Gtk.Label(label=str(mon['index']))
-                number_label.get_style_context().add_class("number")
-                vbox.pack_start(number_label, True, True, 0)
-                
+                number_label = Gtk.Label(label=str(index))
+                badge.pack_start(number_label, True, True, 0)
+
                 # Monitor info
-                info_label = Gtk.Label(label=f"{mon['name']}\n{mon['width']}x{mon['height']}")
+                info_label = Gtk.Label(label=f"{name}\n{geo.width}x{geo.height}")
                 info_label.get_style_context().add_class("info")
-                vbox.pack_start(info_label, False, False, 0)
-                
+                badge.pack_start(info_label, False, False, 0)
+
                 # Close instruction
                 close_label = Gtk.Label(label="Press ESC or click to close")
                 close_label.get_style_context().add_class("info")
-                vbox.pack_start(close_label, False, False, 0)
-                
+                badge.pack_start(close_label, False, False, 0)
+
                 # Connect events
                 window.connect("button-press-event", lambda w, e: w.destroy())
                 window.connect("key-press-event", lambda w, e: w.destroy() if e.keyval == Gdk.KEY_Escape else None)
-                
+
                 window.show_all()
+                # Place the overlay on its monitor. fullscreen_on_monitor() is
+                # honored on both X11 and Wayland, unlike window.move().
+                window.fullscreen_on_monitor(window.get_screen(), index)
                 id_windows.append(window)
-            
+
             # Auto-close after 5 seconds
             def close_all():
                 for w in id_windows:
                     if w.get_visible():
                         w.destroy()
                 return False
-            
+
             GLib.timeout_add_seconds(5, close_all)
-            
+
         except Exception as e:
             self.show_error(f"Error identifying monitors: {str(e)}")
     

@@ -84,6 +84,49 @@ Customizable settings saved per host:
 
 ## Installation
 
+### Install on KDE-based distributions (Arch/CachyOS, KDE neon, Kubuntu, Fedora KDE, openSUSE…)
+
+The bundled `install.sh` adds RDP2GUI to your KDE application menu. It is a
+**per-user** install: the app and its menu entry go in your home directory, so no
+root is required for the app itself, and it works the same on any KDE/Plasma desktop
+regardless of which distribution or package manager you use.
+
+```bash
+git clone https://github.com/rjeffmyers/rdp2gui.git
+cd rdp2gui
+./install.sh
+```
+
+What it does:
+
+- Copies the app to `~/.local/bin/rdp2gui`.
+- Creates a menu entry at `~/.local/share/applications/rdp2gui.desktop` with an
+  absolute path, so launching from the menu (search **RDP2GUI** in the application
+  launcher or KRunner) works even if `~/.local/bin` isn't on your `PATH`.
+- Refreshes the KDE/Plasma menu cache so the entry appears immediately.
+- Checks for missing dependencies and, **only after showing you the exact package
+  list and asking for approval**, installs them with your package manager. It
+  auto-detects `pacman` (Arch/CachyOS/Manjaro), `apt` (Kubuntu/KDE neon/Debian), or
+  `dnf` (Fedora KDE). The dependency install is the only step that uses `sudo`; if you
+  decline, the menu entry is still created and the install command is printed so you
+  can run it later.
+
+Uninstall at any time (your settings and saved connections in
+`~/.config/rdp2gui/` are preserved):
+
+```bash
+./uninstall.sh
+```
+
+> **System-wide install:** prefer the app available to all users under `/usr`? Use the
+> Debian package (`build-deb.sh`) on Debian-based systems, or copy `rdp2gui.py` to
+> `/usr/bin/rdp2gui` and `debian/usr/share/applications/rdp2gui.desktop` to
+> `/usr/share/applications/` manually.
+
+> **Wayland note:** RDP2GUI runs on both X11 and Wayland Plasma sessions. The
+> **Identify Monitors** tool uses GDK's monitor API, so it correctly detects and
+> labels each monitor on Wayland as well as X11.
+
 ### Quick Start
 
 1. Clone the repository:
